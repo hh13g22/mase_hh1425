@@ -72,37 +72,34 @@ class BinaryBipolar(InplaceFunction):
 
 
 class BinaryBipolarScaled(InplaceFunction):
-    """A PyTorch function for binarizing input values.
-
-    This function takes an input tensor and a threshold value and binarizes the input values,
-    setting values greater than or equal to the threshold to mean and values below the threshold to -mean
-
-    Args:
-        ctx (torch.autograd.function._ContextMethodMixin): The context object to store intermediate results.
-        input (torch.Tensor): The input tensor to be binarized.
-        threshold (float or torch.Tensor): The threshold value for binarization.
-
-    Returns:
-        torch.Tensor: The binarized output tensor, where values are either -1 or 1.
     """
-
+    Binary Quantization with scaling (Bipolar: -Mean, +Mean).
+    """
     @staticmethod
     def alpha(tensor):  # determine batch means
         absvalue = tensor.abs()
-        alpha = absvalue.mean(dim=(1, 2, 3), keepdims=True)
+        # FIX: Dynamic reduction dimensions
+        reduce_dims = tuple(range(1, tensor.dim()))
+        
+        if not reduce_dims: # Handle 1D case
+            alpha = absvalue
+        else:
+            alpha = absvalue.mean(dim=reduce_dims, keepdims=True)
+            
         return alpha.view(-1, 1)
 
     @staticmethod
     def forward(ctx, input, _threshold):
-        alpha = BinaryBipolarScaled.alpha(input)  # contains all averages per batch item
+        alpha = BinaryBipolarScaled.alpha(input)
 
-        output = torch.zeros_like(input)  # tracer compatability vs torch.zeros()
+        # tracer compatability vs torch.zeros()
         pos_one = torch.where(input > 0, 1.0, 0.0)
         neg_one = pos_one - 1
-        out = torch.add(pos_one, neg_one)
-        output = out * alpha.view(-1, 1, 1, 1).expand(
-            -1, input.size()[1], input.size()[2], input.size()[3]
-        )
+        out = torch.add(pos_one, neg_one) # Results in +1 or -1
+        
+        # --- FIX: Dynamic Expansion ---
+        view_shape = [input.size(0)] + [1] * (input.dim() - 1)
+        output = out * alpha.view(*view_shape).expand_as(input)
 
         return output
 
@@ -138,84 +135,77 @@ class BinaryZeroOne(InplaceFunction):
 
 
 class BinaryZeroScaled(InplaceFunction):
-    """A PyTorch function for binarizing input values.
-
-    This function takes an input tensor and a threshold value and binarizes the input values,
-    setting values greater than or equal to the threshold to 1 and values below the threshold to 0 but scaled with tensor means.
-
-    Args:
-        ctx (torch.autograd.function._ContextMethodMixin): The context object to store intermediate results.
-        input (torch.Tensor): The input tensor to be binarized.
-        threshold (float or torch.Tensor): The threshold value for binarization.
-
-    Returns:
-        torch.Tensor: The binarized output tensor
     """
-
+    Binary Quantization with scaling.
+    Ref: https://arxiv.org/abs/1603.05279
+    """
     @staticmethod
-    def alpha(tensor):  # determine batch means
+    def alpha(tensor):
+        # Determine reduction dimensions (all except dim 0)
+        reduce_dims = tuple(range(1, tensor.dim()))
         absvalue = tensor.abs()
-        alpha = absvalue.mean(dim=(1, 2, 3), keepdims=True)
+        
+        # Safeguard for 1D tensors
+        if not reduce_dims:
+            alpha = absvalue
+        else:
+            alpha = absvalue.mean(dim=reduce_dims, keepdims=True)
+            
         return alpha.view(-1, 1)
 
     @staticmethod
     def forward(ctx, input, _threshold):
         alpha = BinaryZeroScaled.alpha(input)
-
         pos_one = torch.where(input > 0, 1.0, 0.0)
-        output = pos_one * alpha.view(-1, 1, 1, 1).expand(
-            -1, input.size()[1], input.size()[2], input.size()[3]
-        )
+        
+        # Dynamic Expansion
+        view_shape = [input.size(0)] + [1] * (input.dim() - 1)
+        output = pos_one * alpha.view(*view_shape).expand_as(input)
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
         grad_input = grad_output.clone()
         return grad_input, None
-
+    
 
 class TernaryScaled(InplaceFunction):
-    """A PyTorch function for ternary scaling of input values.
-
-    This function takes an input tensor and a threshold value and performs ternary scaling,
-    where values greater than the threshold are scaled to the mean of the input tensor, values less than or equal to
-    the negative threshold are scaled to negative mean of the input tensor, and values within the range (-threshold, threshold]
-    are scaled to 0. The scaling factor is determined by the mean of the input tensor.
-
-    Args:
-        ctx (torch.autograd.function._ContextMethodMixin): The context object to store intermediate results.
-        input (torch.Tensor): The input tensor to be ternary scaled.
-        threshold (float or torch.Tensor): The threshold value for ternary scaling.
-
-    Returns:
-        torch.Tensor: The ternary scaled output tensor, where values are either -mean, 0, or mean.
     """
-
+    Ternary Quantization with scaling (-Mean, 0, +Mean).
+    """
     @staticmethod
     def delta(tensor):
-        n = tensor[0].nelement()  # total feature map elements
-
+        n = tensor[0].nelement()
         flat = tensor.flatten(1)
+        
+        # FIX: Dynamic sum dimensions
+        reduce_dims = tuple(range(1, tensor.dim()))
+        if not reduce_dims:
+             return 0.75 * tensor.abs()
 
         delta = 0.75 * torch.sum(flat.abs(), dim=(1,)) / n
 
-        delta = (
-            delta.unsqueeze(1)
-            .unsqueeze(1)
-            .unsqueeze(1)
-            .expand(-1, tensor.size()[1], tensor.size()[2], tensor.size()[3])
-        )  # expand to match input dims
-
+        # FIX: Dynamic Expansion
+        view_shape = [tensor.size(0)] + [1] * (tensor.dim() - 1)
+        delta = delta.view(*view_shape).expand_as(tensor)
+        
         return delta
 
     @staticmethod
     def alpha(tensor, delta):
         absvalue = tensor.abs()
         truth_value = (absvalue > delta).to(torch.float32)
-        truth_num = truth_value.sum(dim=(1, 2, 3))
-        alpha = (truth_value.view(1, -1) * absvalue.view(1, -1)).view(
-            tensor.size()
-        ).sum(dim=(1, 2, 3)) / truth_num
+        
+        # FIX: Dynamic reduction
+        reduce_dims = tuple(range(1, tensor.dim()))
+        if not reduce_dims:
+            return absvalue # Should not happen in standard flow
+            
+        truth_num = truth_value.sum(dim=reduce_dims)
+        # Avoid division by zero
+        truth_num = torch.clamp(truth_num, min=1.0)
+        
+        alpha = (truth_value * absvalue).sum(dim=reduce_dims) / truth_num
         return alpha.view(-1, 1)
 
     @staticmethod
@@ -223,20 +213,13 @@ class TernaryScaled(InplaceFunction):
         delta = TernaryScaled.delta(input)
         alpha = TernaryScaled.alpha(input, delta)
 
-        output = torch.zeros_like(input)
-        pos_one = torch.where(
-            input > delta,
-            1.0,
-            0.0,
-        )
-        neg_one = torch.where(
-            input < -delta,
-            -1.0,
-            0.0,
-        )
-        output = (pos_one + neg_one) * alpha.view(-1, 1, 1, 1).expand(
-            -1, input.size()[1], input.size()[2], input.size()[3]
-        )
+        pos_one = torch.where(input > delta, 1.0, 0.0)
+        neg_one = torch.where(input < -delta, -1.0, 0.0)
+        
+        # --- FIX: Dynamic Expansion for Output ---
+        view_shape = [input.size(0)] + [1] * (input.dim() - 1)
+        output = (pos_one + neg_one) * alpha.view(*view_shape).expand_as(input)
+        
         return output
 
     @staticmethod
@@ -270,12 +253,9 @@ class Ternary(InplaceFunction):
 
         delta = 0.75 * torch.sum(flat.abs(), dim=(1,)) / n
 
-        delta = (
-            delta.unsqueeze(1)
-            .unsqueeze(1)
-            .unsqueeze(1)
-            .expand(-1, tensor.size()[1], tensor.size()[2], tensor.size()[3])
-        )  # expand to match input dims
+        # FIX: Use dynamic view and expand_as to support 2D (Linear) and 4D (Conv)
+        view_shape = [tensor.size(0)] + [1] * (tensor.dim() - 1)
+        delta = delta.view(*view_shape).expand_as(tensor)
 
         return delta
 
@@ -283,10 +263,15 @@ class Ternary(InplaceFunction):
     def alpha(tensor, delta):
         absvalue = tensor.abs()
         truth_value = (absvalue > delta).to(torch.float32)
-        truth_num = truth_value.sum(dim=(1, 2, 3))
-        alpha = (truth_value.view(1, -1) * absvalue.view(1, -1)).view(
-            tensor.size()
-        ).sum(dim=(1, 2, 3)) / truth_num
+        
+        # FIX: Dynamically determine which dimensions to sum over (all except dim 0)
+        sum_dims = tuple(range(1, tensor.dim()))
+        
+        truth_num = truth_value.sum(dim=sum_dims)
+        
+        # simplified calculation that supports dynamic dimensions
+        alpha = (truth_value * absvalue).sum(dim=sum_dims) / truth_num
+        
         return alpha.view(-1, 1)
 
     @staticmethod

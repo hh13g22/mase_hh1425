@@ -80,6 +80,7 @@ class BlockMinifloatQuantize(torch.autograd.Function):
             skip_first_dim=skip_first_dim,
         )
 
+    """
     @staticmethod
     def backward(
         ctx,
@@ -90,6 +91,11 @@ class BlockMinifloatQuantize(torch.autograd.Function):
         block_size: list[int] | int = [16],
         skip_first_dim: bool = False,
     ):
+
+        return grad_output, None, None, None, None, None
+    """
+
+    def backward(ctx,grad_output: Tensor,):
         return grad_output, None, None, None, None, None
 
 
