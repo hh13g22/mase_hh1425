@@ -16,6 +16,7 @@ Available frameworks:
   - SparseGPT for Pruning
   - GPTQ for quantisation
 
+NanoVLLM compatibility gap: LLM Compressor operates on HuggingFace `AutoModelForCausalLM`. NanoVLLM's Qwen3 is a custom reimplementation. To bridge compatibility, run LLM Compressor on the pretrained HgggingFace `Qwen/Qwen3-0.6B` model and produce safetensor weights. Finally, may need to modify `nanovllm/models` and `config.json` to reflect any architectural changes. 
 
 
 
