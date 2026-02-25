@@ -25,10 +25,11 @@ Qwen/Qwen3-0.6B-FP8 (Qwen optimised reference, unsuitable for optimisation due t
 Qwen/Qwen3-0.6B-GPTQ-Int8 (Same as above)
 
 ### Proposed Pipeline
+```text
 Qwen/Qwen3-0.6B (BF16)
          │
          ▼
-SparseGPT Pruning ◀――――――――――――――――   Feedback            
+SparseGPT Pruning ◀――――――――――――――――  Feedback            
          │                         │  
          ▼                         │
 Quantisation (GPTQ, AutoRound) ―――――
@@ -39,10 +40,8 @@ Save compressed safetensors
          ▼
 ―――――――――――――――――――――――
 │        Qwen3        │    
-│  NanoVLLM Vervsion  │
+│  NanoVLLM Version   │
 ―――――――――――――――――――――――
          │
          ▼
 Update NanoVLLM → Benchmark
-
-
