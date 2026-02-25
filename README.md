@@ -20,9 +20,9 @@ NanoVLLM compatibility gap: LLM Compressor operates on HuggingFace `AutoModelFor
 
 ### Available Pretrained Models
 
-Qwen/Qwen3-0.6B (BF16 Baseline)
-Qwen/Qwen3-0.6B-FP8 (Qwen optimised reference, unsuitable for optimisation due to custom FP8 weights)
-Qwen/Qwen3-0.6B-GPTQ-Int8 (Same as above)
+-  Qwen/Qwen3-0.6B (BF16 Baseline)
+-  Qwen/Qwen3-0.6B-FP8 (Qwen optimised reference, unsuitable for optimisation due to custom FP8 weights)
+-  Qwen/Qwen3-0.6B-GPTQ-Int8 (Same as above)
 
 ### Proposed Pipeline
 ```text
