@@ -3,7 +3,7 @@
 
 This work is to document and backup work done for the module Advanced Deep Learning Systems instructed by Aaron Zhao [Teaching](https://aaron-zhao123.github.io/teaching/adls/)
 
-### NanoVLLM incompatibility with MASE (fx.symbolic_trace)
+### NanoVLLM Incompatibility with MASE (fx.symbolic_trace)
 torch.fx.symbolic_trace does a symbolic execution of a model's `forward()` method. It passes a proxy object and records every operation into a compute graph. Compatibility fails when operations are not determinable or upon control flow. 
 
 NanoVLLM's implementation of the Qwen3-0.6B model modifies the original pytorch model with custom modules that allow for run time optimisations such as Tensor Parallelism. Two notables are: `ColumnParallelLinear` and `RowParallelLinear`, to which FX can not decompose into graph IRs. Moreover, control flow such as  `if residual is None:` causes excessive fx graph breaks. Additionally, NanoVLLM's implementation of Qwen3 includes split passes. Instead of a single forward pass, the model computes multiple passes sequentially to stich an output. MASE only attempts to trace the `forward()` method. 
@@ -18,6 +18,31 @@ Available frameworks:
 
 NanoVLLM compatibility gap: LLM Compressor operates on HuggingFace `AutoModelForCausalLM`. NanoVLLM's Qwen3 is a custom reimplementation. To bridge compatibility, run LLM Compressor on the pretrained HgggingFace `Qwen/Qwen3-0.6B` model and produce safetensor weights. Finally, may need to modify `nanovllm/models` and `config.json` to reflect any architectural changes. 
 
+### Available Pretrained Models
 
+Qwen/Qwen3-0.6B (BF16 Baseline)
+Qwen/Qwen3-0.6B-FP8 (Qwen optimised reference, unsuitable for optimisation due to custom FP8 weights)
+Qwen/Qwen3-0.6B-GPTQ-Int8 (Same as above)
+
+### Proposed Pipeline
+Qwen/Qwen3-0.6B (BF16)
+         │
+         ▼
+SparseGPT Pruning ◀――――――――――――――――   Feedback            
+         │                         │  
+         ▼                         │
+Quantisation (GPTQ, AutoRound) ―――――
+         │
+         ▼
+Save compressed safetensors
+         │
+         ▼
+―――――――――――――――――――――――
+│        Qwen3        │    
+│  NanoVLLM Vervsion  │
+―――――――――――――――――――――――
+         │
+         ▼
+Update NanoVLLM → Benchmark
 
 
